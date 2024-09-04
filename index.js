@@ -2,7 +2,7 @@
 /**
  * static files (404.html, sw.js, conf.js)
  */
-const ASSET_URL = 'https://xiaozhou26.github.io/gh-proxy-pro/'
+const ASSET_URL = 'https://https://iixingchen.github.io/gh-proxy-pro/'
 // 前缀，如果自定义路由为example.com/gh/*，将PREFIX改为 '/gh/'，注意，少一个杠都会错！
 const PREFIX = '/'
 const Config = {
@@ -20,13 +20,12 @@ const PREFLIGHT_INIT = {
     }),
 }
 
-
-const exp1 = /^(?:https?:\/\/)?github\.com\/.+?\/.+?\/(?:releases|archive)\/.*$/i
-const exp2 = /^(?:https?:\/\/)?github\.com\/.+?\/.+?\/(?:blob|raw)\/.*$/i
-const exp3 = /^(?:https?:\/\/)?github\.com\/.+?\/.+?\/(?:info|git-).*$/i
-const exp4 = /^(?:https?:\/\/)?raw\.(?:githubusercontent|github)\.com\/.+?\/.+?\/.+?\/.+$/i
-const exp5 = /^(?:https?:\/\/)?gist\.(?:githubusercontent|github)\.com\/.+?\/.+?\/.+$/i
-const exp6 = /^(?:https?:\/\/)?github\.com\/.+?\/.+?\/tags.*$/i
+const GITHUB_RELEASES_ARCHIVE_REGEX = /^(?:https?:\/\/)?github\.com\/.+?\/.+?\/(?:releases|archive)\/.*$/i
+const GITHUB_BLOB_RAW_REGEX = /^(?:https?:\/\/)?github\.com\/.+?\/.+?\/(?:blob|raw)\/.*$/i
+const GITHUB_INFO_GIT_REGEX = /^(?:https?:\/\/)?github\.com\/.+?\/.+?\/(?:info|git-).*$/i
+const GITHUB_RAW_CONTENT_REGEX = /^(?:https?:\/\/)?raw\.(?:githubusercontent|github)\.com\/.+?\/.+?\/.+?\/.+$/i
+const GITHUB_GIST_REGEX = /^(?:https?:\/\/)?gist\.(?:githubusercontent|github)\.com\/.+?\/.+?\/.+$/i
+const GITHUB_TAGS_REGEX = /^(?:https?:\/\/)?github\.com\/.+?\/.+?\/tags.*$/i
 
 /**
  * @param {any} body
@@ -35,9 +34,8 @@ const exp6 = /^(?:https?:\/\/)?github\.com\/.+?\/.+?\/tags.*$/i
  */
 function makeRes(body, status = 200, headers = {}) {
     headers['access-control-allow-origin'] = '*'
-    return new Response(body, {status, headers})
+    return new Response(body, { status, headers })
 }
-
 
 /**
  * @param {string} urlStr
@@ -50,50 +48,47 @@ function newUrl(urlStr) {
     }
 }
 
-
 addEventListener('fetch', e => {
     const ret = fetchHandler(e)
         .catch(err => makeRes('cfworker error:\n' + err.stack, 502))
     e.respondWith(ret)
 })
 
-
 function checkUrl(u) {
-    for (let i of [exp1, exp2, exp3, exp4, exp5, exp6 ]) {
-        if (u.search(i) === 0) {
+    for (let i of [GITHUB_RELEASES_ARCHIVE_REGEX, GITHUB_BLOB_RAW_REGEX, GITHUB_INFO_GIT_REGEX, GITHUB_RAW_CONTENT_REGEX, GITHUB_GIST_REGEX, GITHUB_TAGS_REGEX]) {
+        if (i.test(u)) {
             return true
         }
     }
     return false
 }
+
 // 创建一个生成器函数，用于生成随机的GitHub加速网站目标URL
+const TARGET_URLS = 'https://gh.duckcc.com,https://git.gushao.club'; // 替换为实际的URL
 const targetUrls = TARGET_URLS.split(',');
 
 function* urlGenerator() {
-  while (true) {
-    const randomIndex = Math.floor(Math.random() * targetUrls.length);
-    yield targetUrls[randomIndex];
-  }
+    while (true) {
+        const randomIndex = Math.floor(Math.random() * targetUrls.length);
+        yield targetUrls[randomIndex];
+    }
 }
-
-
 
 const getNextUrl = urlGenerator();
 
 // 创建一个生成器函数，用于生成随机的GitHub URL
-
+const GH_URLS = 'https://github.q2zy.com,https://gitclone.com'; // 替换为实际的URL
 const GHUrls = GH_URLS.split(',');
 
 function* urlgh() {
-  while (true) {
-    const randomIndex = Math.floor(Math.random() * GHUrls.length);
-    yield GHUrls[randomIndex];
-  }
+    while (true) {
+        const randomIndex = Math.floor(Math.random() * GHUrls.length);
+        yield GHUrls[randomIndex];
+    }
 }
 
-
-
 const ghUrl = urlgh();
+
 /**
  * @param {FetchEvent} e
  */
@@ -106,11 +101,14 @@ async function fetchHandler(e) {
         return Response.redirect('https://' + urlObj.host + PREFIX + path, 301)
     }
     // cfworker 会把路径中的 `//` 合并成 `/`
-    path = urlObj.href.substr(urlObj.origin.length + PREFIX.length).replace(/^https?:\/+/, 'https://')
-    if (path.search(exp1) === 0 || path.search(exp5) === 0 || path.search(exp6) === 0 || !Config.gitclone && (path.search(exp3) === 0 || path.search(exp4) === 0)) {
+    path = urlObj.href.substr(urlObj.origin.length).replace(/^\/+/, '')
+    if (GITHUB_RELEASES_ARCHIVE_REGEX.test(path) || GITHUB_GIST_REGEX.test(path) || GITHUB_TAGS_REGEX.test(path) || (!Config.gitclone && (GITHUB_INFO_GIT_REGEX.test(path) || GITHUB_RAW_CONTENT_REGEX.test(path)))) {
         const newUrl = `${getNextUrl.next().value}/${path}`;
-        return Response.redirect(newUrl, 302);
-    }else if (path.search(exp2) === 0) {
+        return fetch(newUrl).then(response => new Response(response.body, {
+            status: response.status,
+            headers: response.headers
+        }));
+    } else if (GITHUB_BLOB_RAW_REGEX.test(path)) {
         if (Config.jsdelivr) {
             const newUrl = path.replace('/blob/', '@').replace(/^(?:https?:\/\/)?github\.com/, 'https://cdn.jsdmirror.com/gh')
             return Response.redirect(newUrl, 302)
@@ -118,17 +116,16 @@ async function fetchHandler(e) {
             path = path.replace('/blob/', '/raw/')
             return httpHandler(req, path)
         }
-    } else if (path.search(exp3) === 0) {
+    } else if (GITHUB_INFO_GIT_REGEX.test(path)) {
         const newUrl = path.replace(/^(?:https?:\/\/)?github\.com/, ghUrl.next().value);
         return Response.redirect(newUrl, 302)
-    } else if (path.search(exp4) === 0) {
+    } else if (GITHUB_RAW_CONTENT_REGEX.test(path)) {
         const newUrl = path.replace(/(?<=com\/.+?\/.+?)\/(.+?\/)/, '@$1').replace(/^(?:https?:\/\/)?raw\.(?:githubusercontent|github)\.com/, 'https://cdn.jsdmirror.com/gh')
         return Response.redirect(newUrl, 302)
     } else {
         return fetch(ASSET_URL + path)
     }
 }
-
 
 /**
  * @param {Request} req
@@ -151,6 +148,9 @@ function httpHandler(req, pathname) {
         urlStr = 'https://' + urlStr
     }
     const urlObj = newUrl(urlStr)
+    if (!urlObj) {
+        return makeRes('Invalid URL', 400)
+    }
 
     /** @type {RequestInit} */
     const reqInit = {
@@ -161,7 +161,6 @@ function httpHandler(req, pathname) {
     }
     return proxy(urlObj, reqInit)
 }
-
 
 /**
  *
